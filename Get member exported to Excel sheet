@@ -1,0 +1,2 @@
+$group1 = Get-ADGroupMember -Identity "DL-unknown"
+$group1 | export-CSV 'C:\Users\adm_rjames\Desktop\DL-known.csv'
