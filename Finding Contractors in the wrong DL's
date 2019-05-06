@@ -1,0 +1,12 @@
+Finding Contractors in the wrong DL's
+
+#This is to Find 
+
+$userlist = Get-ADGroupMember -Identity "DL-employees-full-time"
+
+foreach ($user in $userlist)
+{
+Get-ADUser -Identity $user -Properties name,title | where {$_.title -match "Contractor"} | select name,title | export-csv C:\Users\user\desktop\butts2.csv -Append
+}
+
+#
