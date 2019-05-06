@@ -1,0 +1,10 @@
+Get a list of every user in AD with Name -- Title -- Description
+
+$userlist = Get-ADGroupMember -Identity "DL-employees-full-time"
+
+foreach ($user in $userlist)
+{
+Get-ADUser -Identity $user -Properties name,title,description | select name,title,description | sort title
+}
+
+$group1 | export-CSV 'C:\Users\adm_rjames\Desktop\DL-employees-full-time.csv'
