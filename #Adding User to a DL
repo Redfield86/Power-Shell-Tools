@@ -1,0 +1,4 @@
+#Adding User to a DL
+
+$group1 = Get-ADGroupMember -Identity "dist_qa" 
+foreach ($user in $group1) {Add-ADGroupMember -Identity "DL-employeebugbounty" -members $user}
