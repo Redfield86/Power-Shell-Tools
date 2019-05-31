@@ -1,4 +1,4 @@
 #Get Members of DLto an excel shell
 
-$group1 = Get-ADGroupMember -Identity "dist_qa" 
-foreach ($user in $group1) {Add-ADGroupMember -Identity "DL-employeebugbounty" -members $user}
+$group1 = Get-ADGroupMember -Identity "DL-Name" 
+foreach ($user in $group1) {Add-ADGroupMember -Identity "DL-name" -members $user}
