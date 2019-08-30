@@ -1,0 +1,428 @@
+﻿<#
+  .SYNOPSIS
+   This script is a user creation script for use by IT Staff.
+
+  .DESCRIPTION
+   The ultimate purpose of this script is to accomplish several things:
+
+   1. Generate a proper username if not provided (non-mandatory parameter);
+   2. Create the AD user account;
+   3. Add user to proper groups based on the department (mandatory parameter);
+   4. Force an AD -> Office 365 sync;
+   5. Connect to Office 365 PowerShell;
+   6. Assign the new user an E4 license;
+   7. TBD
+
+  .EXAMPLE 1
+   PS C:\> Import-Module .\New-HireAccount.ps1
+   PS C:\> New-HireAccount -FirstName "Nick" -LastName "Wilson" -Manager "cbaillie" -Department "IT" -Title "Senior Systems Engineer" -Office "SC1"
+
+  .EXAMPLE 2
+   New-HireAccount -FirstName "WuTang" -LastName "Clan" -Manager "cbaillie" -Department "IT" -Title "Aint nothin to mess with" -Office "SC1"
+
+  .EXAMPLE 3
+   New-HireAccount -FirstName "Nick" -LastName "Wilson" -Manager "cbaillie" -Department "IT" -Title "Senior Systems Engineer" -Office "SC1"
+
+  .PARAMETER FirstName
+   The new user's first name.  This parameter is mandatory.
+
+  .PARAMETER LastName
+   The new user's last name.  This parameter is mandatory.
+
+  .PARAMETER Username
+   The new user's username (first initial + last name).  This parameter is not mandatory.
+   The username will be generated based on the first name and last name values.
+   For example, the username will be first initial + last name.  If that exists, then it will be first initial + second initial (of first name) + last name.
+
+  .PARAMETER Manager
+   The name of the new user's direct manager.  This parameter is not mandatory, but should be filled.
+
+  .PARAMETER Department
+   The new user's department.  This paramteter is mandatory.
+
+#>
+
+function New-HireAccount
+{
+[CmdletBinding()]
+    
+param 
+(
+    [Alias('First')][Parameter(Mandatory=$true)][string]$FirstName,
+    [Alias('Last')][Parameter(Mandatory=$true)][string]$LastName,
+    [Alias('User')][ValidateLength(1,32)]$Username,
+    [Alias('Mgr')][string]$Manager,
+    [Alias('Dept')][Parameter(Mandatory=$true)][string]$Department,
+    [Parameter(Mandatory=$true)][string]$Title,
+    [Parameter(Mandatory=$true)][string]$Office,
+    [Parameter(Mandatory=$false)][string]$State,
+    [Alias('ID')][Parameter(Mandatory=$false)][string]$EmployeeID
+)
+
+#Logic to decide which country the user belongs to.
+#If unknown (RMT), country will be set to US.  
+#This can be corrected at any time in Office 365 "Usage Location" for the user.
+#Use the two letter codes for each country from here: https://www.iso.org/obp/ui/#search
+
+    if ($Office -match 'SC1' -or $Office -match 'SC' -or $Office -match 'Santa' ){$Location = 'US'}
+    if ($Office -match 'CLW' -or $Office -match 'Clear'){$Location = 'US'}
+    if ($Office -match 'RMT' -or $Office -match 'Remote'){$Location = 'US'}
+    if ($Office -match 'Tal' -or $Office -match 'Eston'){$Location = 'EE'}
+    if ($Office -match 'CLW' -or $Office -match 'Clear'){$Location = 'US'}
+    if ($Office -match 'Ire' -or $Office -match 'Cork'){$Location = 'IE'}
+    if ($Office -match 'Singapore'){$Location = 'SG'}
+    if ($Office -match 'Spain'){$Location = 'ES'}
+    if ($Office -match 'Germany'){$Location = 'DE'}
+    if ($Office -match 'Kingdom' -or $Office -match 'UK'){$Location = 'GB'}
+    if ($Office -match 'France'){$Location = 'FR'}
+    if ($Office -match 'Netherlands'){$Location = 'NL'}
+    if ($Office -match 'Poland'){$Location = 'PL'}`
+    if ($Office -match 'Serbia'){$Location = 'RS'}
+    if ($Office -match 'Arab' -or $Office -match 'UAE'){$Location = 'AE'}
+    if ($Office -match 'Saudi'){$Location = 'SA'}
+    if ($Office -match 'Belguim'){$Location = 'BE'}
+    if ($Office -match 'Europe'){$Location = 'GB'}
+    if ($Office -match 'Philippines'){$Location = 'PH'}
+    if ($Office -match 'Malaysia'){$Location = 'MY'}
+    if ($Office -match 'India'){$Location = 'IN'}
+    if ($Office -match 'Australia' -or $Office -match 'Aus'){$Location = 'AU'}
+    if ($Office -match 'Canada'){$Location = 'CA'}
+    if ($Office -match 'Brazil'){$Location = 'BR'}
+    if ($Office -match 'Mexico'){$Location = 'MX'}
+    if ($Office -match 'Puerto'){$Location = 'PR'}
+    if ($Office -match 'Greenland'){$Location = 'GL'}
+
+#Catch-all if no location was matched
+    if ($Location -eq $null){$Location = 'US'}
+
+    if ($State -ne $null)
+    {
+        if ($Office -match 'RMT' -or $Office -match 'Remote') 
+        {
+            $Office = "$State - Home Office"
+        }
+    }
+
+    if ((Get-ADUser -Filter {sAMAccountName -eq $Manager}) -eq $null)
+    {
+        $Manager = $null
+    }
+
+
+$Activity = "Malwarebytes New User Creation"
+$Id = 1
+$Task = "Generating username..."
+$Percent = 5
+Write-Progress -Id $Id -Activity $Activity -Status $Task -PercentComplete $Percent
+
+#Logic to build username if not specified as a parameter.
+if ($Username -eq $null -or (Get-ADUser -Filter {sAMAccountName -eq $Username -Server 'sc1dc1.corp.mb-internal.com'}) -ne $null)
+{
+    $FirstInitial = $FirstName.substring(0,1)
+    $Username = $FirstInitial+$LastName
+    $Username = $Username.Replace(' ','')
+
+    #Detects duplicate username and uses first and second initial (of first name) + last name for the new user.
+    if ((Get-ADUser -Filter {sAMAccountName -eq $Username}) -ne $null)
+    {  
+        $FirstInitial = $FirstName.substring(0,2)
+        $Username = $FirstInitial+$LastName
+        $Username = $Username.Replace(' ','')
+
+        #Detects duplicate username (come on, really????) and uses first, second, and third initial (of first name) + last name for the new user.
+        if ((Get-ADUser -Filter {sAMAccountName -eq $Username}) -ne $null)
+        {  
+            $FirstInitial = $FirstName.substring(0,3)
+            $Username = $FirstInitial+$LastName
+            $Username = $Username.Replace(' ','')
+        }
+    }
+
+}
+
+$Username = $Username.ToLower()
+
+#Group memberships for different deparments.  
+#This can be a Git repo in the future for easier maintenance.
+#Using the same section for configuring OU path.
+$DateTime = (Get-Date -format s).Replace('T','_').Replace(':','')
+$groupFile = "C:\temp\group_$DateTime.txt "
+
+$Activity = "Malwarebytes New User Creation"
+$Id = 1
+$Task = "Gathering AD group membership info..."
+$Percent = 10
+Write-Progress -Id $Id -Activity $Activity -Status $Task -PercentComplete $Percent
+
+#IT
+if ($Department -match 'IT' -or $Department -match 'Information Technology')
+    {
+        #Invoke-WebRequest https://github.mb-internal.com/raw/IT/PowerShell-Tools/master/Windows/DepartmentGroups/IT.txt?token=AAABl8P6SiIumxdXF7Ok1pFF_tWtHFeYks5ahxZrwA%3D%3D -OutFile $groupFile
+        #$groupContent = Get-Content $groupFile
+        $OU = 'OU=IT,OU=Employees - North America,OU=People,OU=MB-INTERNAL,DC=corp,DC=mb-internal,DC=com'
+    }
+
+#DSE
+if ($Department -match 'DSE' -or $Department -match 'Data Science')
+    {
+        #Invoke-WebRequest https://github.mb-internal.com/raw/IT/PowerShell-Tools/master/Windows/DepartmentGroups/DSE.txt?token=AAABl7_chtIIR1M90HG6o2LuQpgnF32aks5ahyDYwA%3D%3D -OutFile $groupFile
+        #$groupContent = Get-Content $groupFile
+        $OU = 'OU=Engineering,OU=Employees - North America,OU=People,OU=MB-INTERNAL,DC=corp,DC=mb-internal,DC=com'
+    }
+
+#Engineering
+if ($Department -match 'Engineering')
+    {
+        #Invoke-WebRequest https://github.mb-internal.com/raw/IT/PowerShell-Tools/master/Windows/DepartmentGroups/Engineering.txt?token=AAABl8kyvvSuTJfNEODlmZsi8rsbU3Zsks5ahySuwA%3D%3D -OutFile $groupFile
+        #$groupContent = Get-Content $groupFile
+        $OU = 'OU=Engineering,OU=Employees - North America,OU=People,OU=MB-INTERNAL,DC=corp,DC=mb-internal,DC=com'
+    }
+
+#Marketing
+if ($Department -match 'Marketing')
+    {
+        $OU = 'OU=Marketing,OU=Employees - North America,OU=People,OU=MB-INTERNAL,DC=corp,DC=mb-internal,DC=com'
+    }
+
+#Product Management
+if ($Department -match 'Product Management')
+    {
+        $OU = 'OU=Product Management,OU=Employees - North America,OU=People,OU=MB-INTERNAL,DC=corp,DC=mb-internal,DC=com'
+    }
+
+#Support
+if ($Department -match 'Support')
+    {
+        $OU = 'OU=Product Support,OU=Employees - North America,OU=People,OU=MB-INTERNAL,DC=corp,DC=mb-internal,DC=com'
+    }
+
+#QA
+if ($Department -match 'QA' -or $Department -match 'Quality')
+    {
+        $OU = 'OU=QA,OU=Employees - North America,OU=People,OU=MB-INTERNAL,DC=corp,DC=mb-internal,DC=com'
+    }
+
+#Research
+if ($Department -match 'Research')
+    {
+        $OU = 'OU=Research,OU=Employees - North America,OU=People,OU=MB-INTERNAL,DC=corp,DC=mb-internal,DC=com'
+    }
+
+#Malware Intelligence
+if ($Department -match 'Protection Lab' -or $Department -match 'Malware Intelligence')
+    {
+        $OU = 'OU=Malware Intelligence,OU=Employees - North America,OU=People,OU=MB-INTERNAL,DC=corp,DC=mb-internal,DC=com'
+    }
+
+#SDR
+if ($Department -match '280 Americas SDR')
+    {
+        $OU = 'OU=Sales,OU=Employees - North America,OU=People,OU=MB-INTERNAL,DC=corp,DC=mb-internal,DC=com'
+    }
+
+#Sales
+if ($Department -match 'Sales')
+    {
+        $OU = 'OU=Sales,OU=Employees - North America,OU=People,OU=MB-INTERNAL,DC=corp,DC=mb-internal,DC=com'
+    }
+
+#EMEA Sales
+if ($Department -match 'Sales EMEA')
+    {
+        $OU = 'OU=Sales,OU=Contractors - EMEA,OU=People,OU=MB-INTERNAL,DC=corp,DC=mb-internal,DC=com'
+    }
+
+#APAC Sales
+if ($Department -match 'Sales APAC')
+    {
+        $OU = 'OU=Sales,OU=Contractors - APAC,OU=People,OU=MB-INTERNAL,DC=corp,DC=mb-internal,DC=com'
+    }
+
+#Administration
+if ($Department -match 'Administration')
+    {
+        $OU = 'OU=Administration,OU=Employees - North America,OU=People,OU=MB-INTERNAL,DC=corp,DC=mb-internal,DC=com'
+    }
+
+#Operations
+if ($Department -match 'Growth' -or $Department -match 'Brand' -or $Department -match 'Development')
+    {
+        $OU = 'OU=Operations,OU=Employees - North America,OU=People,OU=MB-INTERNAL,DC=corp,DC=mb-internal,DC=com'
+    }
+
+#Administration 2
+if ($Department -match 'Recruiting' -or $Department -match 'Finance' -or $Department -match 'G&A' -or $Department -match 'Global Comm')
+    {
+        $OU = 'OU=Administration,OU=Employees - North America,OU=People,OU=MB-INTERNAL,DC=corp,DC=mb-internal,DC=com'
+    }
+
+#General Bucket
+if ($OU -eq $null)
+    {
+        $OU = 'OU=Employees - North America,OU=People,OU=MB-INTERNAL,DC=corp,DC=mb-internal,DC=com'
+    }
+
+if ($Title -match ‘Contractor’ -and $Location -match ‘US’)
+    {
+        $OU = 'OU=Contractors - North America,OU=People,OU=MB-INTERNAL,DC=corp,DC=mb-internal,DC=com'
+    }
+
+#Office 365 Credentials
+
+$O365Creds = Get-Content 'C:\Scripts\svc_adautocreds.txt' | ConvertTo-SecureString
+$O365User = 'svc_adauto@malwarebytes.com'                              
+$AdminUser = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $O365User,$O365Creds
+
+$Activity = "Malwarebytes New User Creation"
+$Id = 1
+$Task = "Connecting to Office 365 API..."
+$Percent = 15
+Write-Progress -Id $Id -Activity $Activity -Status $Task -PercentComplete $Percent
+
+#Connect to Office 365 PowerShell
+Connect-MsolService -Credential $AdminUser
+
+#AD user account creation
+$UserPassword = (ConvertTo-SecureString '1q2w3e!Q@W#E' -AsPlainText -force)
+
+$Activity = "Malwarebytes New User Creation"
+$Id = 1
+$Task = "Creating AD user account and setting properties..."
+$Percent = 30
+Write-Progress -Id $Id -Activity $Activity -Status $Task -PercentComplete $Percent
+
+New-ADUser -Name $Username -UserPrincipalName "$Username@malwarebytes.com" -GivenName $FirstName -Surname $LastName -EmailAddress "$Username@malwarebytes.com" -DisplayName "$FirstName $LastName" -Company 'Malwarebytes' -Office $Office -Department $Department -Title $Title -Server 'sc1dc1.corp.mb-internal.com' -Path $OU -ChangePasswordAtLogon $false -AccountPassword $UserPassword -Description $Title
+
+Start-Sleep -Seconds 30
+
+Set-ADUser -Identity $Username -Replace @{Proxyaddresses="SMTP:"+$Username+"@malwarebytes.com"} -Server 'sc1dc1.corp.mb-internal.com'
+Set-ADUser -Identity $Username -Add @{Proxyaddresses="smtp:"+$Username+"@malwarebytes.org"} -Server 'sc1dc1.corp.mb-internal.com'
+Set-ADUser -Identity $Username -Enabled:$true -Confirm:$false -ChangePasswordAtLogon:$true -Server 'sc1dc1.corp.mb-internal.com'
+Get-ADUser -Identity $Username -Server 'sc1dc1.corp.mb-internal.com' | Rename-ADObject -NewName "$FirstName $LastName" -Server 'sc1dc1.corp.mb-internal.com'
+Get-ADUser -Identity $Username -Properties MailNickName -Server 'sc1dc1.corp.mb-internal.com' | Set-ADUser -Replace @{MailNickName = "$Username"} -Server 'sc1dc1.corp.mb-internal.com'
+
+if ((Get-ADUser -Filter {sAMAccountName -eq $Manager}) -ne $null) 
+    {
+        Set-ADUser -Identity $Username -Manager $Manager -Server 'sc1dc1.corp.mb-internal.com'
+    }
+
+if ($Location -match 'SC1' -or $Location -match 'Santa' -or $Location -match 'RMT' -or $Location -match 'Remote' -or $Location -match 'CLW' -or $Location -match 'Clear')
+    {
+        if ($Location -match 'SC1' -or $Location -match 'Santa')
+            {
+                Set-ADUser -Identity $Username -Country 'United States' -StreetAddress '3979 Freedom Circle' -City 'Santa Clara' -State 'California' -PostalCode '95054'
+            }
+        
+        if ($Location -match 'Clear' -or $Location -match 'CLW')
+            {
+                Set-ADUser -Identity $Username -Country 'United States' -StreetAddress '410 Park Place Blvd' -City 'Clearwater' -State 'Florida' -PostalCode '33759'
+            }
+
+        if ($Location -match 'RMT' -or $Location -match 'Remote' -and $State -ne $null)
+            {
+                Set-ADUser -Identity $Username -Country 'United States' -State $State
+            }
+    }
+
+if ($EmployeeID -ne $null)
+    {
+        try 
+        {
+            Set-ADUser -Identity $Username -Server 'sc1dc1.corp.mb-internal.com' -EmployeeID $EmployeeID -EmployeeNumber $EmployeeID
+        }
+        catch 
+        {
+            Write-Host 'The employee ID field is invalid or blank. The script will continue despite this error. Please update the new user account manually.' 
+        }
+        
+    }
+
+$Activity = "Malwarebytes New User Creation"
+$Id = 1
+$Task = "Adding user to proper groups..."
+$Percent = 60
+Write-Progress -Id $Id -Activity $Activity -Status $Task -PercentComplete $Percent
+
+#Add new user to groups gathered from Git repo.
+foreach ($Group in $groupContent)
+    { 
+        Add-ADGroupMember -Identity $Group -Members $Username -Server 'sc1dc1.corp.mb-internal.com'
+    }
+
+#Clean up C:\Temp file(s).
+Get-ChildItem "C:\Temp" | Remove-Item -Filter "*.txt" -Recurse -Force -Confirm:$false
+
+#Force AD to O365 Sync
+$Activity = "Malwarebytes New User Creation"
+$Id = 1
+$Task = "Forcing AD sync to Office 365..."
+$Percent = 70
+Write-Progress -Id $Id -Activity $Activity -Status $Task -PercentComplete $Percent
+
+Invoke-Command -ComputerName 'sc1o365sync1.corp.mb-internal.com' -ScriptBlock { Import-Module ADSync; Start-ADSyncSyncCycle -PolicyType Delta }
+
+#This will loop the script until the user is visible in Office 365; it will timeout after 15 minutes.
+$Timeout = 0
+
+do 
+    {
+        #Waiting for O365 to Sync
+        #Clear-Host
+        Write-Output 'Sleeping for 30 seconds...'
+        Start-Sleep -Seconds 30
+        Write-Output 'Verifying if user successfully synced to Office 365...'  
+        $Timeout++
+    }
+
+until 
+    ( 
+        (Get-MsolUser -UserPrincipalName "$Username@malwarebytes.com" -ErrorAction SilentlyContinue).UserPrincipalName -ne $null -or $Timeout -ge '30'
+    )
+
+
+#Assign properties and E4 license to newly created user account
+$Activity = "Malwarebytes New User Creation"
+$Id = 1
+$Task = "Creating AD user account and setting properties..."
+$Percent = 80
+Write-Progress -Id $Id -Activity $Activity -Status $Task -PercentComplete $Percent
+
+$LO = New-MsolLicenseOptions -AccountSkuId 'malwarebytes:ENTERPRISEWITHSCAL' -DisabledPlans "YAMMER_ENTERPRISE", "RMS_S_ENTERPRISE", "MCOSTANDARD", "SWAY", "MCOVOICECONF"
+
+Set-MsolUser -UserPrincipalName "$Username@malwarebytes.com" -UsageLocation $Location
+Set-MsolUserLicense -UserPrincipalName "$Username@malwarebytes.com" -AddLicenses 'malwarebytes:ENTERPRISEWITHSCAL'
+Set-MsolUserLicense -UserPrincipalName "$Username@malwarebytes.com" -AddLicenses 'malwarebytes:POWER_BI_STANDARD'
+Set-MsolUserLicense -UserPrincipalName "$Username@malwarebytes.com" -LicenseOptions $LO
+
+#Connect to Exchange Online PowerShell Session
+$UserCredential = $AdminUser
+$Session = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri https://ps.outlook.com/powershell-liveid?DelegatedOrg=malwarebytes.com -Credential $UserCredential -Authentication Basic -AllowRedirection
+Import-PSSession $Session
+
+#Enable Litigation Hold for the newly created user
+
+do {Start-Sleep -Seconds 60}
+until ((Get-Mailbox -Identity $Username -ErrorAction SilentlyContinue) -ne $null)
+
+Get-Mailbox -Identity $Username | Set-Mailbox -LitigationHoldEnabled $true
+
+$Activity = "Malwarebytes New User Creation"
+$Id = 1
+$Task = "Finalizing user..."
+$Percent = 100
+Write-Progress -Id $Id -Activity $Activity -Status $Task -PercentComplete $Percent
+
+Clear-Host
+Write-Host ''
+Write-Host ''
+Write-Host 'Successfully created user with the below information:' -ForegroundColor White -BackgroundColor DarkGreen
+Write-Host ''
+Write-Host "Username = $Username" -ForegroundColor Green -BackgroundColor Black
+Write-Host "First name = $FirstName" -ForegroundColor Green -BackgroundColor Black
+Write-Host "Last name = $LastName" -ForegroundColor Green -BackgroundColor Black
+Write-Host "Manager = $Manager" -ForegroundColor Green -BackgroundColor Black
+Write-Host "Title = $Title" -ForegroundColor Green -BackgroundColor Black
+Write-Host "Office = $Office" -ForegroundColor Green -BackgroundColor Black
+Write-Host "Department = $Department" -ForegroundColor Green -BackgroundColor Black
+
+}
