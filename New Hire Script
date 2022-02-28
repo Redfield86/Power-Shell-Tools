@@ -15,13 +15,13 @@
 
   .EXAMPLE 1
    PS C:\> Import-Module .\New-HireAccount.ps1
-   PS C:\> New-HireAccount -FirstName "Nick" -LastName "Wilson" -Manager "cbaillie" -Department "IT" -Title "Senior Systems Engineer" -Office "SC1"
+   PS C:\> New-HireAccount -FirstName "Joe" -LastName "Smith" -Manager "abrown" -Department "IT" -Title "Senior Systems Engineer" -Office "SC1"
 
   .EXAMPLE 2
-   New-HireAccount -FirstName "WuTang" -LastName "Clan" -Manager "cbaillie" -Department "IT" -Title "Aint nothin to mess with" -Office "SC1"
+   New-HireAccount -FirstName "WuTang" -LastName "Clan" -Manager "abrown" -Department "IT" -Title "Aint nothin to mess with" -Office "SC1"
 
   .EXAMPLE 3
-   New-HireAccount -FirstName "Nick" -LastName "Wilson" -Manager "cbaillie" -Department "IT" -Title "Senior Systems Engineer" -Office "SC1"
+   New-HireAccount -FirstName "Bob" -LastName "Jones" -Manager "abrown" -Department "IT" -Title "Senior Systems Engineer" -Office "SC1"
 
   .PARAMETER FirstName
    The new user's first name.  This parameter is mandatory.
